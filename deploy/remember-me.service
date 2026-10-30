@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: CPAL-1.0
+[Unit]
+Description=Remember-Me image memory (originally created by Ting)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=remember-me
+Group=remember-me
+WorkingDirectory=/opt/remember-me
+EnvironmentFile=/etc/remember-me/host.env
+LoadCredential=nginx-mcp.conf:/etc/remember-me/nginx-mcp.conf
+LoadCredential=upload-token:/etc/remember-me/upload-token
+RuntimeDirectory=remember-me
+StateDirectory=remember-me
+UMask=0077
+ExecStart=/usr/bin/flock --nonblock /var/lib/remember-me/.writer.lock /opt/remember-me/.venv/bin/python /opt/remember-me/deploy/run-host.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/remember-me
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

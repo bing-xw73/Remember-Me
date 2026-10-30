@@ -11,6 +11,17 @@ from fastapi import HTTPException, Request, status
 AUTH_HEADERS = {"WWW-Authenticate": "Bearer"}
 
 
+def require_upload_access(request: Request) -> None:
+    expected = request.app.state.config.resolved_upload_token
+    if expected is None:
+        raise HTTPException(404, detail={"code": "quick_upload_disabled", "message": "Quick upload is disabled."})
+    scheme, separator, supplied = request.headers.get("authorization", "").partition(" ")
+    authenticated = bool(separator) and scheme.casefold() == "bearer" and bool(supplied) and secrets.compare_digest(supplied, expected)
+    request.state.authenticated = authenticated
+    if not authenticated:
+        raise HTTPException(401, detail={"code": "authentication_required", "message": "Upload Token is required."}, headers=AUTH_HEADERS)
+
+
 def require_asset_access(request: Request) -> None:
     expected = request.app.state.config.resolved_auth_token
     if expected is None:

@@ -8,6 +8,15 @@ Remember-Me 是一个独立的图像记忆、存储、检索和管理项目。�
 
 官方仓库：https://github.com/peanutsuee/Remember-Me
 
+## bing-xw73 fork：claude.ai 集成
+
+本 fork 提供附件容器的两步保存（预填 metadata 的上传链接 + curl）、
+`rm_asset_inspect` 的 512/1024/完整尺寸 ImageContent、紧凑搜索、自动索引与
+仅上传的快捷指令接口。部署使用独立 nginx HTTPS、回环 systemd 服务。
+功能、测试和未完成的设备验收见 [集成记录](docs/claude-ai-integration.md)，
+iPhone 操作见 [快捷指令说明](docs/ios-shortcut.md)。下面的 Stage 状态为原始基线说明，
+不代表本 fork 的部署验收结论。
+
 Stage 7E 要求 Python 3.10 或更高版本，因为稳定版官方 MCP Python SDK v1 要求 Python 3.10+。
 
 ## Stage 7H-A 状态

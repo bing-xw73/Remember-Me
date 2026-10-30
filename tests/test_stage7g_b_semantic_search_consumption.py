@@ -537,7 +537,9 @@ def test_threshold_zero_preserves_positive_score_and_no_match_is_success(
     ).server._tool_manager.get_tool("rm_asset_search").fn
     response = asyncio.run(tool(query="ocean"))
     assert response.structuredContent == {
-        "ok": True, "total": 0, "limit": 20, "offset": 0, "items": [],
+        "ok": True, "total": 0, "limit": 5, "offset": 0, "items": [],
+        "search_mode": "hybrid",
+        "note": "Hybrid keyword and semantic ranking.",
     }
     assert create_local_service(tmp_path / "service", semantic_min_score=1).semantic_min_score == 1
 
@@ -748,6 +750,8 @@ def test_mcp_keyword_fallback_is_exact_for_null_and_failing_providers(tmp_path):
         "limit",
         "offset",
         "items",
+        "search_mode",
+        "note",
     }
 
 

@@ -54,6 +54,9 @@ safe defaults.
 | API docs | `REMEMBER_ME_ENABLE_DOCS` | `False` |
 | Log level | `REMEMBER_ME_LOG_LEVEL` | `INFO` |
 | Signed-link base | `REMEMBER_ME_PUBLIC_BASE_URL` | loopback URL |
+| Upload-only Token | `REMEMBER_ME_UPLOAD_TOKEN` | unset (quick-upload disabled) |
+| Upload-only Token file | `REMEMBER_ME_UPLOAD_TOKEN_FILE` | unset |
+| Quick upload attempts/minute | `REMEMBER_ME_QUICK_UPLOAD_RATE_LIMIT` | 10 |
 
 Boolean values accept trimmed, case-insensitive `1`, `true`, `yes`, and `on`
 as true; `0`, `false`, `no`, `off`, and an empty value are false. Other values

@@ -24,7 +24,7 @@ from query parameters or Cookies.
 
 Signed upload and download URLs contain separate high-entropy Ticket
 credentials. The server stores only their SHA-256 digests in bounded process
-memory. Upload Tickets expire after five minutes and are single-use; a failed
+memory. Upload Tickets expire after fifteen minutes and are single-use; a failed
 upload cannot be replayed. Download Tickets expire after five minutes, HEAD
 does not consume a use, and at most three successful GET attempts are allowed.
 Restarting the Host invalidates all Tickets.
@@ -92,3 +92,18 @@ data-root paths, or temporary file paths.
 
 API docs are disabled by default. Enabling docs is intended for loopback
 development and is not evidence of a secure deployment.
+
+## Fork upload-only credential and deployment
+
+The optional quick-upload credential is distinct from the main Bearer Token.
+It authorizes only POST `/api/v1/quick-upload`; it cannot read/search/change/delete
+assets or call MCP. Its response never includes an existing asset's metadata,
+even on deduplication. Both credentials remain Header-only. Tickets are separate
+capabilities: anyone holding an unexpired Ticket can perform its bounded transfer.
+
+The nginx secret MCP path is a proxy capability, independent of the upload-only
+credential. Anyone holding that path has full MCP access. nginx injects the main
+Header, without changing Core authentication. The site disables URI-bearing
+nginx logs. Host-only provenance lives in `host-metadata.sqlite3`, separate from
+the compatible Core database. Back up both alongside CAS. See
+[deployment and acceptance](claude-ai-integration.md) for exact operational limits.

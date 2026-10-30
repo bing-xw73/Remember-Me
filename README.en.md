@@ -2,6 +2,12 @@
 
 # Remember-Me
 
+This bing-xw73 fork adds claude.ai container uploads with prefilled metadata,
+scaled `rm_asset_inspect` ImageContent, compact search, automatic indexing and
+an upload-only iOS endpoint. See [integration status](docs/claude-ai-integration.md)
+and [iOS setup](docs/ios-shortcut.md). The original Stage disclosures below
+describe the upstream baseline; device acceptance is tracked separately.
+
 **Remember-Me — originally created by Ting (peanutsuee)**
 
 Remember-Me is an independent image memory, storage, retrieval, and management

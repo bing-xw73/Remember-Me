@@ -524,7 +524,7 @@ class RememberMeService:
             raise
         except Exception:
             return fallback
-        if query_vector is None:
+        if query_vector is None or not any(query_vector):
             return fallback
         try:
             if self.vector_provider.model_id != model_before:
@@ -595,6 +595,22 @@ class RememberMeService:
             )
         )
         combined.extend(semantic_only)
+        if request.hybrid_ranking:
+            # Reciprocal rank fusion; exact IDs always win.
+            keyword_ranks = {item.asset.asset_id: rank for rank, item in enumerate(keyword.results, 1)}
+            semantic_ranked = sorted(
+                (item for item in combined if item.semantic_score is not None),
+                key=lambda item: (-item.semantic_score, item.asset.asset_id),
+            )
+            vector_ranks = {item.asset.asset_id: rank for rank, item in enumerate(semantic_ranked, 1)}
+
+            def fusion_key(item):
+                aid = item.asset.asset_id
+                score = (1 / (60 + keyword_ranks[aid]) if aid in keyword_ranks else 0)
+                score += (1 / (60 + vector_ranks[aid]) if aid in vector_ranks else 0)
+                return ("asset_id_exact" not in item.match_reasons, -score,
+                        -datetime.fromisoformat(item.asset.created_at).timestamp(), aid)
+            combined.sort(key=fusion_key)
         total = len(combined)
         selected = combined[
             max(0, request.offset) : max(0, request.offset)
@@ -605,6 +621,7 @@ class RememberMeService:
             offset=request.offset,
             limit=request.limit,
             results=tuple(selected),
+            search_mode="hybrid",
         )
 
     async def reindex_embeddings(self, request):

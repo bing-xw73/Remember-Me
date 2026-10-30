@@ -9,6 +9,7 @@ from remember_me import metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 IGNORED_REPOSITORY_PARTS = {
+    ".private",
     ".pytest_cache",
     ".stage7e-venv",
     ".venv",

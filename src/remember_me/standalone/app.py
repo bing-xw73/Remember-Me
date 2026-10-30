@@ -39,6 +39,7 @@ from remember_me.core import (
     UploadTooLarge,
 )
 from remember_me.factory import create_local_runtime
+from remember_me.host_metadata import HostMetadataStore, upload_metadata
 from remember_me.mcp import create_mcp_runtime
 from remember_me.mcp.tools import read_cleaned_image
 from remember_me.mcp.transfers import (
@@ -60,8 +61,10 @@ from remember_me.metadata import (
     PROJECT_VERSION,
 )
 
-from .auth import require_asset_access
+from .auth import require_asset_access, require_upload_access
 from .config import StandaloneConfig
+from .indexing import reindex_asset
+from .quick_upload import UploadRateLimiter
 from .middleware import MAX_IMAGE_BYTES, SecureRequestMiddleware
 from .schemas import (
     AboutResponse,
@@ -164,11 +167,15 @@ def create_app(
         blob_store = runtime.blob_store
     if service is None:
         raise ValueError("service_is_required")
-    shared_runtime = runtime or SimpleNamespace(
+    shared_runtime = SimpleNamespace(
         service=service,
         repository=repository,
         blob_store=blob_store,
+        metadata_store=HostMetadataStore(config.data_root),
     )
+    async def after_metadata_write(asset_id):
+        return await reindex_asset(service, asset_id)
+    shared_runtime.after_metadata_write = after_metadata_write
     if repository is None or blob_store is None:
         raise ValueError("repository_and_blob_store_are_required")
     mcp_runtime = create_mcp_runtime(shared_runtime, config)
@@ -195,6 +202,8 @@ def create_app(
     app.state.repository = repository
     app.state.blob_store = blob_store
     app.state.mcp_runtime = mcp_runtime
+    app.state.metadata_store = shared_runtime.metadata_store
+    app.state.upload_rate_limiter = UploadRateLimiter(config.quick_upload_rate_limit)
     dashboard_root = Path(__file__).with_name("dashboard")
 
     @app.exception_handler(RememberMeError)
@@ -319,6 +328,47 @@ def create_app(
             data_compatibility_version=DATA_COMPATIBILITY_VERSION,
         )
 
+    @app.post("/api/v1/quick-upload", dependencies=[Depends(require_upload_access)])
+    async def quick_upload(request: Request):
+        retry_after = request.app.state.upload_rate_limiter.check()
+        if retry_after is not None:
+            raise HTTPException(429, detail={"code": "rate_limited", "message": "Too many uploads; retry later."},
+                                headers={"Retry-After": str(retry_after)})
+        async with request.form(max_files=1, max_fields=32, max_part_size=64 * 1024) as form:
+            if (set(form) - {"file", "description", "tags"} or len(form.getlist("file")) != 1
+                    or len(form.getlist("description")) > 1):
+                raise HTTPException(422, detail={"code": "validation_error", "message": "Expected one file, optional description and tags."})
+            upload = form.get("file")
+            if not isinstance(upload, UploadFile) or any(not isinstance(value, str) for key, value in form.multi_items() if key != "file"):
+                raise HTTPException(422, detail={"code": "validation_error", "message": "Expected an image file and text metadata."})
+            content = await upload.read(MAX_IMAGE_BYTES + 1)
+            if len(content) > MAX_IMAGE_BYTES:
+                raise UploadTooLarge()
+            metadata = upload_metadata(
+                description=form.get("description", ""),
+                tags=tuple(tag.strip() for value in form.getlist("tags") for tag in value.split(",") if tag.strip()),
+                source="ios-shortcut",
+            )
+            try:
+                result = service.ingest_image(IngestImageRequest(
+                    content=content, expected_bytes=len(content), filename=upload.filename or "photo.jpg",
+                    mime_type=upload.content_type or "application/octet-stream",
+                    description=metadata.description, tags=metadata.tags,
+                ))
+            except ImageValidationError:
+                raise HTTPException(415, detail={"code": "unsupported_image", "message": "Only valid PNG/JPEG images are supported. Convert HEIC/WebP to JPEG before uploading."}) from None
+        if not result.deduplicated:
+            try:
+                app.state.metadata_store.record_new(result.asset.asset_id, metadata)
+            except Exception:
+                service.delete_asset(DeleteAssetRequest(result.asset.asset_id))
+                raise StorageFailure() from None
+        indexed = await reindex_asset(service, result.asset.asset_id)
+        # Upload-only credential must never receive existing content/metadata on dedup.
+        return JSONResponse(status_code=200 if result.deduplicated else 201,
+                            content={"ok": True, "asset_id": result.asset.asset_id,
+                                     "deduplicated": result.deduplicated, "index_updated": indexed})
+
     @app.post(
         "/api/v1/assets",
         response_model=UploadAssetResponse,
@@ -397,6 +447,7 @@ def create_app(
                 )
             )
             public = asset_to_public_response(result.asset)
+            await reindex_asset(request.app.state.service, result.asset.asset_id)
             payload = UploadAssetResponse(
                 **public.model_dump(),
                 deduplicated=result.deduplicated,
@@ -432,6 +483,7 @@ def create_app(
         created_to: str = "",
         limit: int = Query(default=20, ge=1, le=50),
         offset: int = Query(default=0, ge=0),
+        undescribed: bool = False,
     ):
         result = await request.app.state.service.search_assets(
             SearchAssetsRequest(
@@ -443,6 +495,8 @@ def create_app(
                 created_to=created_to,
                 limit=limit,
                 offset=offset,
+                hybrid_ranking=True,
+                undescribed=undescribed,
             )
         )
         return SearchAssetsResponse(
@@ -488,6 +542,7 @@ def create_app(
                 ),
             )
         )
+        await reindex_asset(request.app.state.service, updated.asset_id)
         return asset_to_public_response(updated)
 
     @app.get(
@@ -521,6 +576,7 @@ def create_app(
         result = request.app.state.service.delete_asset(
             DeleteAssetRequest(asset_id)
         )
+        request.app.state.metadata_store.delete(asset_id)
         return DeleteAssetResponse(
             asset_id=result.asset_id,
             deleted=result.deleted,
@@ -642,8 +698,18 @@ def create_app(
                         or "asset.bin"
                     ),
                     mime_type=upload_ticket.mime_type,
+                    title=upload_ticket.metadata.title,
+                    description=upload_ticket.metadata.description,
+                    tags=upload_ticket.metadata.tags,
                 )
             )
+            if not result.deduplicated:
+                try:
+                    request.app.state.metadata_store.record_new(result.asset.asset_id, upload_ticket.metadata)
+                except Exception:
+                    request.app.state.service.delete_asset(DeleteAssetRequest(result.asset.asset_id))
+                    raise StorageFailure() from None
+            await reindex_asset(request.app.state.service, result.asset.asset_id)
             tickets.complete(
                 upload_id,
                 result.asset,
@@ -652,6 +718,7 @@ def create_app(
             return {
                 "ok": True,
                 "upload_id": upload_id,
+                "asset_id": result.asset.asset_id,
                 "status": "completed",
                 "asset": asset_to_public_response(result.asset).model_dump(),
                 "deduplicated": result.deduplicated,
