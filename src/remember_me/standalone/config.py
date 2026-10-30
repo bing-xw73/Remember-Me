@@ -76,7 +76,11 @@ class StandaloneConfig:
     enable_docs: bool = False
     log_level: str = "INFO"
     public_base_url: Optional[str] = None
+    upload_token: Optional[str] = field(default=None, repr=False)
+    upload_token_file: Optional[Path] = None
+    quick_upload_rate_limit: int = 10
     resolved_auth_token: Optional[str] = field(init=False, repr=False)
+    resolved_upload_token: Optional[str] = field(init=False, repr=False)
     resolved_public_base_url: Optional[str] = field(init=False)
 
     def __post_init__(self):
@@ -128,6 +132,29 @@ class StandaloneConfig:
                     "Bearer Token file is unavailable."
                 ) from exc
         token = _validate_token(token)
+        upload_token = self.upload_token or None
+        upload_token_file = self.upload_token_file or None
+        if upload_token and upload_token_file:
+            raise ConfigurationError("Configure either upload_token or upload_token_file.")
+        if upload_token_file:
+            upload_token_file = Path(upload_token_file).expanduser()
+            try:
+                if upload_token_file.is_symlink() or not upload_token_file.is_file():
+                    raise OSError()
+                upload_token = upload_token_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                raise ConfigurationError("Upload Token file is unavailable.") from None
+        upload_token = _validate_token(upload_token)
+        if upload_token is not None and (token is None or upload_token == token):
+            raise ConfigurationError("Upload Token requires a distinct configured main Token.")
+        try:
+            if isinstance(self.quick_upload_rate_limit, bool):
+                raise ValueError()
+            rate_limit = int(self.quick_upload_rate_limit)
+            if not 1 <= rate_limit <= 1000:
+                raise ValueError()
+        except (TypeError, ValueError):
+            raise ConfigurationError("Quick upload rate limit must be 1 through 1000 per minute.") from None
         if not is_loopback_host(host) and (not allow_network or token is None):
             raise ConfigurationError(
                 "Non-loopback binding requires allow_network and a valid "
@@ -142,6 +169,9 @@ class StandaloneConfig:
         object.__setattr__(self, "enable_docs", enable_docs)
         object.__setattr__(self, "log_level", log_level)
         object.__setattr__(self, "resolved_auth_token", token)
+        object.__setattr__(self, "resolved_upload_token", upload_token)
+        object.__setattr__(self, "upload_token_file", upload_token_file)
+        object.__setattr__(self, "quick_upload_rate_limit", rate_limit)
         object.__setattr__(self, "public_base_url", public_base_url)
         object.__setattr__(self, "resolved_public_base_url", public_base_url)
 
@@ -196,6 +226,9 @@ class StandaloneConfig:
             "public_base_url": environment.get(
                 ENV_PREFIX + "PUBLIC_BASE_URL"
             ),
+            "upload_token": environment.get(ENV_PREFIX + "UPLOAD_TOKEN"),
+            "upload_token_file": environment.get(ENV_PREFIX + "UPLOAD_TOKEN_FILE"),
+            "quick_upload_rate_limit": environment.get(ENV_PREFIX + "QUICK_UPLOAD_RATE_LIMIT"),
         }
         allowed = {
             "data_root",
@@ -207,6 +240,9 @@ class StandaloneConfig:
             "enable_docs",
             "log_level",
             "public_base_url",
+            "upload_token",
+            "upload_token_file",
+            "quick_upload_rate_limit",
         }
         overrides = {
             key: value

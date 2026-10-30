@@ -25,9 +25,15 @@ if not p.exists():
     source = source.replace('PATH_KEY', secrets.token_urlsafe(48)).replace('HOST_TOKEN', secrets.token_urlsafe(48)).replace('DOMAIN', 'rm.wu-bing.xyz')
     p.write_text(source)
     p.chmod(0o600)
+upload_token = Path('/etc/remember-me/upload-token')
+if not upload_token.exists():
+    upload_token.write_text(secrets.token_urlsafe(48))
+    upload_token.chmod(0o600)
 PY
 install -m 644 deploy/remember-me.service deploy/remember-me-backup.service deploy/remember-me-backup.timer /etc/systemd/system/
 chmod 755 deploy/backup.sh
 systemctl daemon-reload
-systemctl enable --now remember-me remember-me-backup.timer
+systemctl enable remember-me remember-me-backup.timer
+systemctl restart remember-me
+systemctl start remember-me-backup.timer
 echo 'Host installed on loopback; configure ACME HTTP site and TLS before connecting clients.'

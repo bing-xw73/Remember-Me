@@ -296,6 +296,7 @@ def test_dashboard_files_are_in_built_wheel(tmp_path):
         ROOT,
         source,
         ignore=shutil.ignore_patterns(
+            ".private",
             ".git",
             ".venv",
             ".dashboard-preview",

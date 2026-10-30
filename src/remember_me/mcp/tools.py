@@ -7,7 +7,9 @@ import base64
 import hashlib
 import io
 import json
-from typing import Annotated, Any, Optional
+import shlex
+from datetime import date
+from typing import Annotated, Any, Literal, Optional
 
 from mcp.types import (
     CallToolResult,
@@ -17,6 +19,8 @@ from mcp.types import (
 )
 from PIL import Image, UnidentifiedImageError
 from pydantic import Field
+
+from remember_me.host_metadata import upload_metadata
 
 from remember_me.core import (
     AssetFileUnavailable,
@@ -112,6 +116,9 @@ def _success(
     extra_content=None,
     meta=None,
 ) -> CallToolResult:
+    # Some clients forward only content, ignoring structuredContent entirely.
+    if not message.lstrip().startswith("{"):
+        message += "\n" + json.dumps(payload, ensure_ascii=False)
     return CallToolResult(
         content=[
             TextContent(type="text", text=message),
@@ -152,11 +159,32 @@ def read_cleaned_image(runtime, asset_id: str):
 
 
 def register_tools(mcp, runtime, uploads, downloads) -> None:
+    def public_asset(asset):
+        public = asset_to_public_dict(asset)
+        store = getattr(runtime, "metadata_store", None)
+        if store is not None:
+            public.update(store.get(asset.asset_id))
+        return public
+
+    def image_text(public, download_url=""):
+        return json.dumps({"asset": public, "download_url": download_url}, ensure_ascii=False)
+
+    def image_link(asset_id):
+        try:
+            ticket, url = downloads.create(asset_id)
+            return {"download_url": url, "expires_at": ticket.expires_at}
+        except TransferError:
+            return {}
+
     @mcp.tool(
         name="rm_asset_upload_link",
         description=(
-            "Create a single-use five-minute URL for uploading one PNG or "
-            "JPEG to Remember-Me."
+            "Create a single-use fifteen-minute multipart POST URL with prefilled metadata. "
+            "In claude.ai chat attachments are in /mnt/user-data/uploads/. Use bash curl "
+            "with the returned curl_template; do not read image contents or convert them "
+            "to base64 tool arguments. Only PNG/JPEG are supported. Convert HEIC, WebP "
+            "or other formats to JPEG in the container with Pillow first "
+            "(HEIC requires a Pillow HEIF decoder)."
         ),
         annotations=LINK_CREATION,
         structured_output=True,
@@ -165,21 +193,40 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
         expected_bytes: Annotated[int, Field(ge=1, le=MAX_IMAGE_BYTES)],
         filename: str = "",
         mime_type: str = "application/octet-stream",
+        mime: Optional[str] = None,
+        title: str = "",
+        description: str = "",
+        tags: Optional[list[str]] = None,
+        occurred_at: str = "",
+        source: str = "claude.ai",
     ) -> Annotated[CallToolResult, McpToolOutput]:
         try:
-            normalized_mime = str(mime_type).strip().casefold()
+            normalized_mime = str(mime if mime is not None else mime_type).strip().casefold()
             if normalized_mime not in ALLOWED_MIME_TYPES:
                 raise InvalidMetadata()
+            if mime is not None and mime_type != "application/octet-stream" and mime_type != mime:
+                raise InvalidMetadata()
+            metadata = upload_metadata(title, description, tuple(tags or ()), occurred_at, source)
             ticket, upload_url = uploads.create(
                 expected_bytes,
                 str(filename),
                 normalized_mime,
+                metadata=metadata,
             )
             return _success(
                 "A short-lived upload link was created.",
                 ok_payload(
                     upload_id=ticket.upload_id,
                     upload_url=upload_url,
+                    url=upload_url,
+                    method="POST",
+                    headers={},
+                    multipart_field="file",
+                    curl_template=(
+                        "curl --fail-with-body -sS -X POST --form "
+                        + shlex.quote('file=@"{FILE}";type=' + normalized_mime + ';filename=upload')
+                        + " " + shlex.quote(upload_url)
+                    ),
                     expires_at=ticket.expires_at,
                     max_bytes=MAX_IMAGE_BYTES,
                 ),
@@ -203,7 +250,8 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
                 "status": ticket.status,
             }
             if ticket.status == "completed" and ticket.asset is not None:
-                values["asset"] = asset_to_public_dict(ticket.asset)
+                values["asset"] = public_asset(ticket.asset)
+                values["asset_id"] = ticket.asset.asset_id
                 values["deduplicated"] = bool(ticket.deduplicated)
             if ticket.status == "failed":
                 values["error"] = {
@@ -232,7 +280,7 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
             )
             return _success(
                 "Asset metadata was retrieved.",
-                ok_payload(asset=asset_to_public_dict(asset)),
+                ok_payload(asset=public_asset(asset)),
             )
         except Exception as error:
             return _safe_error(error)
@@ -246,7 +294,7 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
         annotations=NON_DESTRUCTIVE_WRITE,
         structured_output=True,
     )
-    def rm_asset_update_metadata(
+    async def rm_asset_update_metadata(
         asset_id: str,
         title: Optional[str] = None,
         description: Optional[str] = None,
@@ -263,9 +311,12 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
                     tags=tuple(tags) if tags is not None else None,
                 )
             )
+            hook = getattr(runtime, "after_metadata_write", None)
+            if hook is not None:
+                await hook(asset.asset_id)
             return _success(
                 "Asset metadata was updated.",
-                ok_payload(asset=asset_to_public_dict(asset)),
+                ok_payload(asset=public_asset(asset)),
             )
         except Exception as error:
             return _safe_error(error)
@@ -317,8 +368,10 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
     @mcp.tool(
         name="rm_asset_search",
         description=(
-            "Search Remember-Me image metadata with stable keyword and filter "
-            "semantics."
+            "Search image metadata; returns compact text only, no images, default 5 results. "
+            "Use created_from/created_to as inclusive ISO calendar dates for upload time, "
+            "undescribed=true finds images with no description for inspect and annotation; "
+            "then call rm_asset_inspect to actually see an image."
         ),
         annotations=READ_ONLY,
         structured_output=True,
@@ -330,10 +383,19 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
         mime_type: str = "",
         created_from: str = "",
         created_to: str = "",
-        limit: Annotated[int, Field(ge=1, le=50)] = 20,
+        limit: Annotated[int, Field(ge=1, le=50)] = 5,
         offset: Annotated[int, Field(ge=0)] = 0,
+        undescribed: bool = False,
     ) -> Annotated[CallToolResult, McpToolOutput]:
         try:
+            for value in (created_from, created_to):
+                if value:
+                    try:
+                        date.fromisoformat(value)
+                    except (ValueError, TypeError):
+                        raise InvalidMetadata() from None
+            if created_from and created_to and created_from > created_to:
+                raise InvalidMetadata()
             result = await runtime.service.search_assets(
                 SearchAssetsRequest(
                     query=str(query),
@@ -344,19 +406,30 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
                     created_to=str(created_to),
                     limit=limit,
                     offset=offset,
+                    hybrid_ranking=True,
+                    undescribed=undescribed,
                 )
             )
-            return _success(
-                "Asset search completed.",
-                ok_payload(
+            payload = ok_payload(
+                    search_mode=result.search_mode,
+                    note=("Hybrid keyword and semantic ranking." if result.search_mode == "hybrid"
+                          else "Keyword/metadata only; embeddings are unconfigured, unavailable, or unused for this query."),
                     total=result.total,
                     limit=result.limit,
                     offset=result.offset,
                     items=[
-                        asset_to_public_dict(item.asset)
+                        {
+                            "asset_id": item.asset.asset_id,
+                            "title": item.asset.title,
+                            "description": item.asset.description[:100],
+                            "tags": list(item.asset.tags),
+                            "created_at": item.asset.created_at,
+                        }
                         for item in result.results
                     ],
-                ),
+                )
+            return _success(
+                json.dumps(payload, ensure_ascii=False), payload,
             )
         except Exception as error:
             return _safe_error(error)
@@ -403,11 +476,11 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
     ) -> Annotated[CallToolResult, McpToolOutput]:
         try:
             asset, content = read_cleaned_image(runtime, str(asset_id))
-            public = asset_to_public_dict(asset)
-            payload = ok_payload(asset=public)
+            public = public_asset(asset)
+            link = image_link(asset.asset_id)
+            payload = ok_payload(asset=public, **link)
             return _success(
-                "The cleaned image is ready in the Remember-Me viewer. "
-                "Clients without MCP Apps can call rm_asset_download_link.",
+                image_text(public, link.get("download_url", "")),
                 payload,
                 meta={
                     "remember_me": {
@@ -425,25 +498,46 @@ def register_tools(mcp, runtime, uploads, downloads) -> None:
     @mcp.tool(
         name="rm_asset_inspect",
         description=(
-            "Return one verified privacy-cleaned PNG or JPEG as MCP "
-            "ImageContent."
+            "See one image as MCP ImageContent with title, full description, tags and dates. "
+            "Default medium: JPEG quality 80, longest edge at most 1024px; small: 512px; "
+            "original: full stored privacy-cleaned PNG/JPEG. Download link is for the human; "
+            "it does not make a text-only client send image pixels to the model."
         ),
         annotations=READ_ONLY,
         structured_output=True,
     )
     def rm_asset_inspect(
         asset_id: str,
+        size: Literal["small", "medium", "original"] = "medium",
     ) -> Annotated[CallToolResult, McpToolOutput]:
         try:
             asset, content = read_cleaned_image(runtime, str(asset_id))
+            if size not in {"small", "medium", "original"}:
+                raise InvalidMetadata()
+            mime_type = asset.mime_type
+            if size != "original":
+                edge = 512 if size == "small" else 1024
+                with Image.open(io.BytesIO(content)) as image:
+                    image.thumbnail((edge, edge), Image.Resampling.LANCZOS)
+                    canvas = Image.new("RGB", image.size, "white")
+                    if image.mode == "RGBA":
+                        canvas.paste(image, mask=image.getchannel("A"))
+                    else:
+                        canvas.paste(image.convert("RGB"))
+                    buffer = io.BytesIO()
+                    canvas.save(buffer, "JPEG", quality=80)
+                    content = buffer.getvalue()
+                mime_type = "image/jpeg"
+            public = public_asset(asset)
+            link = image_link(asset.asset_id)
             return _success(
-                "A verified privacy-cleaned image is attached.",
-                ok_payload(asset=asset_to_public_dict(asset)),
+                image_text(public, link.get("download_url", "")),
+                ok_payload(asset=public, size=size, **link),
                 extra_content=[
                     ImageContent(
                         type="image",
                         data=base64.b64encode(content).decode("ascii"),
-                        mimeType=asset.mime_type,
+                        mimeType=mime_type,
                     )
                 ],
             )

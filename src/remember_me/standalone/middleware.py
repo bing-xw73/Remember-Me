@@ -130,6 +130,7 @@ class SecureRequestMiddleware:
             scope.get("method") == "POST"
             and (
                 scope.get("path") == "/api/v1/assets"
+                or scope.get("path") == "/api/v1/quick-upload"
                 or scope.get("path", "").startswith(
                     "/transfers/uploads/"
                 )

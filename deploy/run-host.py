@@ -14,6 +14,8 @@ def main():
         raise SystemExit("Invalid nginx credential configuration")
     os.environ.pop("REMEMBER_ME_AUTH_TOKEN_FILE", None)
     os.environ["REMEMBER_ME_AUTH_TOKEN"] = matches[0]
+    os.environ.pop("REMEMBER_ME_UPLOAD_TOKEN", None)
+    os.environ["REMEMBER_ME_UPLOAD_TOKEN_FILE"] = str(Path(os.environ["CREDENTIALS_DIRECTORY"]) / "upload-token")
     os.execv(sys.executable, [sys.executable, "-m", "remember_me", "serve"])
 
 

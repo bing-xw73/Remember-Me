@@ -29,6 +29,7 @@ return only the privacy-cleaned stored copy.
 | GET | `/readyz` | Read-only database and assets-root readiness. |
 | GET | `/api/v1/about` | Canonical project and version identity. |
 | POST | `/api/v1/assets` | Upload and sanitize a PNG or JPEG. |
+| POST | `/api/v1/quick-upload` | Upload with a distinct upload-only Token, file and optional description/tags. |
 | GET | `/api/v1/assets` | Search and filter assets. |
 | GET | `/api/v1/assets/{asset_id}` | Read public metadata. |
 | PATCH | `/api/v1/assets/{asset_id}` | Edit title, description, or tags. |
@@ -53,6 +54,15 @@ curl -H "Authorization: Bearer $REMEMBER_ME_TOKEN" \
 Search accepts `query`, repeated `tag`, `kind`, `mime_type`, `created_from`,
 `created_to`, `limit`, and `offset`. The default `limit` is 20 and the HTTP
 maximum is 50.
+
+`undescribed=true` filters images with an empty description before ranking and
+pagination. Quick upload accepts multipart `file`, optional `description`, and
+comma-separated or repeated `tags`; the server infers expected_bytes. It uses
+`REMEMBER_ME_UPLOAD_TOKEN_FILE` / `REMEMBER_ME_UPLOAD_TOKEN`, not the main Token,
+and has a default global limit of 10 attempts/minute. It returns only `ok`,
+`asset_id`, `deduplicated`, and `index_updated`. No metadata/content is returned
+on deduplication. Invalid HEIC/WebP has a clear 415 error; file/request limits
+are 10/11 MiB. See [iOS setup](ios-shortcut.md).
 
 PATCH accepts only `title`, `description`, and `tags`. Missing fields are
 unchanged; empty strings clear text and an empty list clears tags. Explicit

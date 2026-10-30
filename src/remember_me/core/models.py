@@ -170,6 +170,8 @@ class SearchAssetsRequest:
     created_to: str = ""
     limit: int = 20
     offset: int = 0
+    hybrid_ranking: bool = False
+    undescribed: bool = False
 
 
 @dataclass(frozen=True)
@@ -185,6 +187,7 @@ class SearchAssetsResult:
     offset: int
     limit: int
     results: Tuple[SearchResultItem, ...]
+    search_mode: str = "keyword"
 
 
 @dataclass(frozen=True)

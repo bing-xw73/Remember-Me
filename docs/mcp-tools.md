@@ -6,15 +6,15 @@ The raw `tools/list` result contains exactly these nine names:
 
 | Tool | Purpose |
 | --- | --- |
-| `rm_asset_upload_link` | Create a five-minute single-use upload URL. |
+| `rm_asset_upload_link` | Create a fifteen-minute single-use upload URL with metadata and curl. |
 | `rm_asset_upload_status` | Read pending, processing, completed, failed, or expired status. |
 | `rm_asset_get` | Read safe public asset metadata. |
 | `rm_asset_update_metadata` | Replace selected title, description, or tags. |
 | `rm_asset_reindex_embeddings` | Process a bounded optional embedding batch. |
-| `rm_asset_search` | Run stable keyword search and filters. |
+| `rm_asset_search` | Return compact text-only search results and filters (default five). |
 | `rm_asset_download_link` | Create a five-minute cleaned-image download URL. |
 | `rm_asset_view` | Return an MCP App Viewer result with a text fallback. |
-| `rm_asset_inspect` | Return a verified cleaned image as MCP ImageContent. |
+| `rm_asset_inspect` | Return a scaled image as MCP ImageContent (512/1024/original). |
 
 No probe, diagnostic, delete, administrator, Ombre-Brain, or legacy
 `asset_*` tools are registered.
@@ -25,7 +25,10 @@ No probe, diagnostic, delete, administrator, Ombre-Brain, or legacy
 rm_asset_upload_link(
     expected_bytes: int,
     filename: str = "",
-    mime_type: str = "application/octet-stream"
+    mime_type: str = "application/octet-stream",
+    mime: str | None = None,
+    title: str = "", description: str = "", tags: list[str] | None = None,
+    occurred_at: str = "", source: str = "claude.ai"
 )
 ```
 
@@ -34,16 +37,23 @@ rm_asset_upload_link(
 contain `expected_sha256` or any other client-supplied hash. The server
 computes authoritative hashes only after receiving and decoding the bytes.
 
-The returned URL accepts one multipart `file` field. It calls the existing
+The returned URL accepts POST with one multipart `file` field. The response
+includes `method`, `headers` (empty; curl generates multipart Content-Type),
+`expires_at`, `multipart_field`, and `curl_template` with `{FILE}` placeholder.
+The response duplicates useful data in TextContent for clients which ignore
+structuredContent. Metadata is validated before a Ticket is issued. It calls the existing
 privacy sanitizer and Core ingest operation. No target path can be supplied.
 
 ## Search schema
 
 `rm_asset_search` accepts `query`, `tags`, `kind`, `mime_type`,
-`created_from`, `created_to`, `limit`, and `offset`. The default limit is 20
+`created_from`, `created_to`, `undescribed`, `limit`, and `offset`. The default limit is 5
 and the maximum is 50. The MCP adapter delegates once to the asynchronous Core
 search operation; it does not embed queries, read vectors, calculate cosine, or
-rank results itself. With an enabled host-injected provider, current same-model
+rank results itself. The host requests Core reciprocal-rank fusion; exact asset
+IDs remain first. Results contain only asset_id, title, the first 100 description
+characters, tags and created_at, plus total/pagination/search_mode/note; no image
+blocks. With an enabled host-injected provider, current same-model
 and same-dimension embeddings may contribute semantic matches through the
 existing result contract. The `NullVectorProvider` keeps the default Standalone
 runtime keyword-only and network-free.
@@ -75,6 +85,12 @@ Provider and per-record vector failures do not become new public MCP errors.
 
 `rm_asset_download_link` serves only the stored privacy-cleaned image.
 `rm_asset_inspect` places base64 only in MCP ImageContent.
+Its `size` is `small` (512px), `medium` (default, 1024px), or `original`
+(unchanged stored privacy-cleaned PNG/JPEG). Previews preserve aspect ratio,
+never upscale, use JPEG quality 80, and composite transparency on white.
+Both inspect and view include full title/description/tags/timestamps in text
+and a five-minute signed download link for humans. Only inspect includes a
+model-visible ImageContent; Viewer behavior remains unchanged.
 `rm_asset_view` places Viewer image base64 only in a dedicated
 `_meta.remember_me.image` namespace. TextContent and structuredContent never
 contain image base64, complete hashes, blob keys, SQLite paths, data roots, or

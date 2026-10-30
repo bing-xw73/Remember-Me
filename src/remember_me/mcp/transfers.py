@@ -7,13 +7,16 @@ import hashlib
 import secrets
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 from urllib.parse import quote
 
+from remember_me.host_metadata import UploadMetadata
+
 
 DEFAULT_TICKET_TTL_SECONDS = 5 * 60
+UPLOAD_TICKET_TTL_SECONDS = 15 * 60
 MAX_ACTIVE_TICKETS = 1024
 MAX_DOWNLOAD_GETS = 3
 
@@ -65,6 +68,7 @@ class UploadTicket:
     filename: str
     mime_type: str
     expires_timestamp: float
+    metadata: UploadMetadata = field(default_factory=UploadMetadata)
     status: str = "pending"
     asset: object = None
     deduplicated: Optional[bool] = None
@@ -80,7 +84,7 @@ class UploadTicketStore:
         self,
         base_url: Optional[str],
         *,
-        ttl_seconds: int = DEFAULT_TICKET_TTL_SECONDS,
+        ttl_seconds: int = UPLOAD_TICKET_TTL_SECONDS,
         max_tickets: int = MAX_ACTIVE_TICKETS,
         now=None,
     ):
@@ -96,6 +100,7 @@ class UploadTicketStore:
         expected_bytes: int,
         filename: str,
         mime_type: str,
+        metadata: Optional[UploadMetadata] = None,
     ) -> Tuple[UploadTicket, str]:
         with self._lock:
             if self.base_url is None:
@@ -112,6 +117,7 @@ class UploadTicketStore:
                 filename=filename,
                 mime_type=mime_type,
                 expires_timestamp=self._now() + self.ttl_seconds,
+                metadata=metadata or UploadMetadata(),
             )
             self._tickets[upload_id] = ticket
             return ticket, _signed_url(

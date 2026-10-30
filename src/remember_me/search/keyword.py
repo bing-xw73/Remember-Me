@@ -47,6 +47,8 @@ def _asset_matches_filters(
     request: SearchAssetsRequest,
     required_tags: tuple[str, ...],
 ) -> bool:
+    if request.undescribed and asset.description.strip():
+        return False
     if request.kind and asset.kind != request.kind:
         return False
     if request.mime_type and asset.mime_type != request.mime_type:

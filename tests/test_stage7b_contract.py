@@ -237,6 +237,7 @@ def test_no_real_asset_database_is_part_of_the_repository():
         ".webp",
     }
     ignored = {
+        ".private",
         ".git",
         ".stage7e-venv",
         ".venv",

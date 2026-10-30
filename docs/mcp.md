@@ -46,7 +46,7 @@ enabled.
 short-lived Ticket URLs. Ticket plaintext is returned only as part of the
 signed URL; the server stores only a SHA-256 digest in bounded process memory.
 
-- Upload Tickets expire after five minutes and can complete once.
+- Upload Tickets expire after fifteen minutes and can complete once.
 - A failed upload cannot be replayed.
 - Download Tickets expire after five minutes.
 - HEAD does not consume a download.
@@ -78,3 +78,12 @@ stored metadata.
 
 Stage 7E is not deployed and does not provide automatic TLS or trusted-proxy
 configuration.
+
+## bing-xw73 fork integration
+
+This fork adds prefilled upload metadata and a ready-to-run multipart curl
+template. Model-visible image previews use `rm_asset_inspect(size="medium")`;
+`rm_asset_view` remains the MCP App Viewer. Search defaults to five compact
+text results and supports `undescribed=true`. See
+[claude.ai integration](claude-ai-integration.md) and [iOS shortcut](ios-shortcut.md)
+for the nginx Header bridge, deployment, and client acceptance status.

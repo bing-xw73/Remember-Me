@@ -466,7 +466,7 @@ def test_complete_mcp_generated_image_workflow(tmp_path):
 
         inspected = await call(
             "rm_asset_inspect",
-            {"asset_id": asset_id},
+            {"asset_id": asset_id, "size": "original"},
         )
         image = next(
             block
@@ -696,6 +696,7 @@ def test_wheel_contains_mcp_adapter_and_viewer(tmp_path):
         ROOT,
         source,
         ignore=shutil.ignore_patterns(
+            ".private",
             ".git",
             ".stage7e-venv",
             ".venv",

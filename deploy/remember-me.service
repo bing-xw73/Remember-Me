@@ -11,6 +11,7 @@ Group=remember-me
 WorkingDirectory=/opt/remember-me
 EnvironmentFile=/etc/remember-me/host.env
 LoadCredential=nginx-mcp.conf:/etc/remember-me/nginx-mcp.conf
+LoadCredential=upload-token:/etc/remember-me/upload-token
 RuntimeDirectory=remember-me
 StateDirectory=remember-me
 UMask=0077
