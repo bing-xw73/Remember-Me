@@ -11,6 +11,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import traceback
 
 import httpx
 from mcp import ClientSession
@@ -100,7 +101,14 @@ async def main():
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except Exception:
+    except Exception as error:
         # Client exceptions may contain URLs. Keep credentials out of command logs.
         print("Live smoke failed; exception details redacted to protect capabilities.")
+        def safe_location(exc):
+            for child in getattr(exc, "exceptions", ()):
+                safe_location(child)
+            frames = traceback.extract_tb(exc.__traceback__)
+            if frames:
+                print("{} at {}:{}".format(type(exc).__name__, Path(frames[-1].filename).name, frames[-1].lineno))
+        safe_location(error)
         raise SystemExit(1) from None

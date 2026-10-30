@@ -196,3 +196,50 @@ Claude 应先查未描述列表，再逐图 inspect，最后 update_metadata 补
 
 任何数量的客户端都连同一个 systemd Host；不会因 claude.ai 与 Kelivo 同时连接
 而增加服务器写进程。部署验收会核实 8787 的唯一监听和该 service 的进程树。
+
+## 第 7 步：已执行验证与剩余验收
+
+本次本地 Python 3.12 / Pillow 12.3.0：
+
+| 阶段 | 全量 pytest 结果 |
+| --- | --- |
+| 改造前 / 第 0 步 | 584 passed |
+| 第 1 步部署配置 | 584 passed |
+| 第 2 步预填上传 | 591 passed |
+| 第 3 步 inspect / 紧凑搜索 | 595 passed |
+| 第 4 步自动索引 / 混合排序（测试 provider） | 596 passed |
+| 第 5 步 quick-upload | 598 passed |
+| curl 真正上传、快捷指令配置、后续全量回归 | 600 passed |
+
+新增测试覆盖 Ticket 结构/15 分钟有效期、预填 metadata/重启持久性、去重不覆盖、
+三种 inspect 尺寸与 original 存储字节、search 文本/默认条数/日期/未描述分页、
+自动索引与 provider 失败降级、受限 Token 的读搜删/MCP 禁止、HEIC/大小/速率限制，
+以及实际执行返回 curl 模板上传 JPG 和 PNG。原有兼容性、hash/CAS、清洗和许可测试保留。
+
+VPS 的 `deploy/smoke.py` 曾完整通过真实 HTTPS 验收，输出：
+
+```json
+{"https":true,"bare_mcp":404,"tools":9,"curl_jpeg_png":true,
+ "inspect_1024":true,"metadata":true,"upload_only_scope":true,
+ "heic_415":true,"undescribed":true,"service_log_secrets_absent":true}
+```
+
+脚本通过公开密钥路径、不带主 Token 连接 MCP，确认 nginx 注入 Header；
+上传 Ticket 不带 Bearer，成功后可搜可看。日志只检查受控 service journal，
+nginx 该站点 access/error 日志关闭。已观察到 8787 仅一个 Python listener，
+地址 127.0.0.1；HTTPS 证书已签发，有效期至 2027-01-28。
+
+**收尾状态（2026-10-30）：** 在额外执行 Ubuntu 全量测试、备份和证书续期演练时，
+SSH 会话中断，随后 SSH banner 与 rm HTTPS 探测持续超时。没有取得服务器诊断，
+不能认定原因，也不能声称当前服务可用。Ubuntu 测试仅见部分进度，未得到最终结果；
+备份恢复、续期 dry-run 也未取得成功回执。不要把这些标为通过。部署代码已到 fork
+commit `8d7c78a`；本地另补了等待 readyz 后才继续验收的安装步骤与脱敏诊断。
+
+控制台已打开但停在阿里云登录页，需冰冰自行登录后继续排查。优先确认实例资源与
+现有服务，停止残留的本次测试进程、确认 remember-me 服务恢复；不应直接盲目重启
+整机。服务器资源诊断和恢复前，不再在生产机运行全量测试。重新验证 HTTPS、备份
+与唯一 listener 后，再安全导出连接资料并生成 Kelivo 盲测图。
+
+仍未完成的部分：外部 embedding 接收方授权及环境配置、claude.ai/Kelivo 真机
+视觉验收（Kelivo 具体版本待取得）、Apple 快捷指令签名/导入及分享菜单实测、
+异地备份目的地。个人偏好规则仍由冰冰自行编写。

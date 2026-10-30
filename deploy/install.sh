@@ -36,4 +36,16 @@ systemctl daemon-reload
 systemctl enable remember-me remember-me-backup.timer
 systemctl restart remember-me
 systemctl start remember-me-backup.timer
+ready=0
+for attempt in $(seq 1 30); do
+    if curl -fs --max-time 1 http://127.0.0.1:8787/readyz >/dev/null; then
+        ready=1
+        break
+    fi
+    sleep 1
+done
+if [ "$ready" != 1 ]; then
+    echo 'Remember-Me did not become ready.' >&2
+    exit 1
+fi
 echo 'Host installed on loopback; configure ACME HTTP site and TLS before connecting clients.'
