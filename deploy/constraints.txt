@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: CPAL-1.0
+# Deployment lock; the reusable Core's supported range remains unchanged.
+Pillow==12.3.0
+fastapi==0.115.14
+starlette==0.46.2
+mcp==1.28.1
+uvicorn==0.33.0
+pydantic==2.12.5
+python-multipart==0.0.32
+httpx==0.28.1
+sse-starlette==3.0.3

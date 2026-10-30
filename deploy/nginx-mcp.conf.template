@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: CPAL-1.0
+# Generate PATH_KEY and HOST_TOKEN independently: secrets.token_urlsafe(48).
+# Install root:root 0600. Never print nginx -T into logs.
+location = /PATH_KEY/mcp {
+    proxy_pass http://127.0.0.1:8787/mcp;
+    proxy_set_header Authorization "Bearer HOST_TOKEN";
+    proxy_set_header Host DOMAIN;
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Forwarded-Host "";
+    proxy_set_header X-Forwarded-Proto "";
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_read_timeout 180s;
+}
